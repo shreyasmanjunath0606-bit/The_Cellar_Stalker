@@ -1,0 +1,19 @@
+#hud { position: fixed; inset: 0; pointer-events: none; font-family: 'Courier New', monospace; color: #cfc8b8; user-select: none; }
+#hud .crosshair { position: absolute; left: 50%; top: 50%; width: 4px; height: 4px; margin: -2px; border-radius: 50%; background: rgba(220, 215, 200, 0.55); }
+#hud .bars { position: absolute; left: 24px; bottom: 24px; display: grid; gap: 8px; font-size: 12px; letter-spacing: 0.1em; }
+#hud .bar { width: 160px; height: 8px; background: rgba(0, 0, 0, 0.55); border: 1px solid rgba(207, 200, 184, 0.35); }
+#hud .bar > i { display: block; height: 100%; background: #cfc8b8; transition: background 0.2s; }
+#hud .bar.battery > i { background: #d8b45a; }
+#hud .bar.battery.low > i { background: #b03a2e; }
+#hud .prompt { position: absolute; left: 50%; top: 58%; transform: translateX(-50%); font-size: 14px; letter-spacing: 0.15em; text-shadow: 0 0 6px #000; }
+#hud .debug { position: absolute; left: 24px; top: 20px; font-size: 12px; letter-spacing: 0.08em; color: #7fbf7f; white-space: pre; }
+.jumpscare { position: fixed; inset: 0; pointer-events: none; display: none; }
+.jumpscare > div { position: absolute; inset: 0; }
+.jumpscare .blood { background: radial-gradient(ellipse at center, transparent 25%, rgba(120, 0, 0, 0.85) 100%); }
+.jumpscare .flash { background: #fff; mix-blend-mode: overlay; }
+.jumpscare .black { background: #000; }
+#hud .keys { position: absolute; right: 24px; bottom: 24px; font-size: 14px; letter-spacing: 0.15em; }
+#hud .overlay { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; background: rgba(0, 0, 0, 0.82); pointer-events: auto; cursor: pointer; text-align: center; }
+#hud .overlay.hidden { display: none; }
+#hud .overlay h1 { font-size: 56px; letter-spacing: 0.25em; margin: 0 0 12px; color: #b03a2e; text-shadow: 0 0 24px rgba(176, 58, 46, 0.6); font-weight: normal; }
+#hud .overlay p { margin: 4px 0; font-size: 14px; letter-spacing: 0.12em; opacity: 0.8; }
