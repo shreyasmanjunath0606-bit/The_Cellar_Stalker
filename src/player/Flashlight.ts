@@ -1,28 +1,37 @@
 import * as THREE from 'three';
 
 const CONE_LENGTH = 12;
-const SPOT_ANGLE = 0.45;
+export const SPOT_ANGLE = 0.45;
 const BASE_INTENSITY = 90;
 
 /**
- * Shadow-casting spotlight with a faint additive cone for a volumetric look.
- * It trails the camera slightly, which reads as hand sway.
+ * Shadow-casting spotlight with a lens-shaped cookie and a faint additive
+ * cone for a volumetric look. It trails the camera slightly, which reads as hand sway.
  */
 export class Flashlight {
   readonly group = new THREE.Group();
   readonly light: THREE.SpotLight;
   battery = 100;
   on = true;
+  /** Current output 0..1 after battery sag and flicker. */
+  level = 1;
 
   private readonly coneMaterial: THREE.ShaderMaterial;
   private readonly offset = new THREE.Vector3(0.22, -0.18, -0.1);
   private flickerUntil = 0;
   private flickerLevel = 1;
 
-  constructor(scene: THREE.Scene) {
+  constructor(
+    parent: THREE.Object3D,
+    cookie: THREE.Texture,
+    /** Battery percent per second. */
+    private readonly drain: number,
+    shadowSize: number,
+  ) {
     this.light = new THREE.SpotLight(0xfff0d0, BASE_INTENSITY, 22, SPOT_ANGLE, 0.55, 1.6);
     this.light.castShadow = true;
-    this.light.shadow.mapSize.set(1024, 1024);
+    this.light.map = cookie;
+    this.light.shadow.mapSize.set(shadowSize, shadowSize);
     this.light.shadow.camera.near = 0.1;
     this.light.shadow.camera.far = 22;
     this.light.shadow.bias = -0.0004;
@@ -66,24 +75,31 @@ export class Flashlight {
       `,
     });
     this.group.add(new THREE.Mesh(geo, this.coneMaterial));
-    scene.add(this.group);
+    parent.add(this.group);
   }
 
-  toggle(): void {
+  toggle(): boolean {
     if (this.battery > 0) this.on = !this.on;
+    return this.on;
   }
 
   addBattery(amount: number): void {
     this.battery = Math.min(100, this.battery + amount);
   }
 
-  /** `tension` 0..1 — how threatened the player is; drives flicker. */
-  update(dt: number, elapsed: number, camera: THREE.Camera, tension = 0): void {
+  setShadowSize(size: number): void {
+    this.light.shadow.mapSize.set(size, size);
+    this.light.shadow.map?.dispose();
+    this.light.shadow.map = null;
+  }
+
+  /** `tension` 0..1 — how threatened the player is; drives flicker. `draining` false in menus. */
+  update(dt: number, elapsed: number, camera: THREE.Camera, tension = 0, draining = true): void {
     this.group.position.copy(camera.position).add(this.offset.clone().applyQuaternion(camera.quaternion));
     this.group.quaternion.slerp(camera.quaternion, 1 - Math.exp(-dt * 9));
 
-    if (this.on) {
-      this.battery = Math.max(0, this.battery - 0.5 * dt);
+    if (this.on && draining) {
+      this.battery = Math.max(0, this.battery - this.drain * dt);
       if (this.battery === 0) this.on = false;
     }
 
@@ -100,6 +116,7 @@ export class Flashlight {
       }
       level *= this.flickerLevel;
     }
+    this.level = level;
     this.light.intensity = BASE_INTENSITY * level;
     this.coneMaterial.uniforms.uIntensity.value = level;
   }

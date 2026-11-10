@@ -8,18 +8,231 @@ export class AudioManager {
   private readonly fwd = new THREE.Vector3();
   private proxGain!: GainNode;
   private heartTimer = 0;
+  private volume = 0.8;
+  private ducked = false;
+  private ambienceTimer = 12;
 
   /** Must be called from a user gesture. */
   start(): void {
     if (!this.ctx) {
-      this.ctx = new AudioContext();
+      const Ctor =
+        window.AudioContext ?? (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+      if (!Ctor) return; // no Web Audio: the game simply runs silent
+      this.ctx = new Ctor();
       this.master = this.ctx.createGain();
-      this.master.gain.value = 0.8;
-      this.master.connect(this.ctx.destination);
+      // the jumpscare stacks several loud layers; a limiter keeps it from clipping
+      const limiter = this.ctx.createDynamicsCompressor();
+      limiter.threshold.value = -10;
+      limiter.knee.value = 8;
+      limiter.ratio.value = 12;
+      limiter.attack.value = 0.003;
+      limiter.release.value = 0.2;
+      this.master.connect(limiter).connect(this.ctx.destination);
       this.noise = this.makeNoise(2);
       this.startAmbient();
+      this.applyGain(0);
     }
     void this.ctx.resume();
+  }
+
+  /** Master volume 0..1. */
+  setVolume(v: number): void {
+    this.volume = v;
+    this.applyGain(0.05);
+  }
+
+  /** Pull the mix down while a menu is over the game. */
+  setDucked(ducked: boolean): void {
+    this.ducked = ducked;
+    this.applyGain(0.25);
+  }
+
+  private applyGain(timeConstant: number): void {
+    if (!this.ctx) return;
+    const target = this.volume * (this.ducked ? 0.3 : 1);
+    if (timeConstant <= 0) this.master.gain.value = target;
+    else this.master.gain.setTargetAtTime(target, this.ctx.currentTime, timeConstant);
+  }
+
+  /** Menu tick. */
+  playUi(): void {
+    const ctx = this.ctx;
+    if (!ctx) return;
+    const t = ctx.currentTime;
+    const o = ctx.createOscillator();
+    o.type = 'triangle';
+    o.frequency.setValueAtTime(190, t);
+    o.frequency.exponentialRampToValueAtTime(110, t + 0.07);
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.22, t);
+    g.gain.exponentialRampToValueAtTime(0.001, t + 0.09);
+    o.connect(g).connect(this.master);
+    o.start(t);
+    o.stop(t + 0.1);
+  }
+
+  /** Her tuneless humming while she wanders — the player's main way to track her by ear. */
+  playMoan(pos: THREE.Vector3): void {
+    const ctx = this.ctx;
+    if (!ctx) return;
+    const t = ctx.currentTime;
+    const dur = 1.6 + Math.random() * 1.2;
+    const out = this.spatial(pos);
+    const lp = ctx.createBiquadFilter();
+    lp.type = 'bandpass';
+    lp.frequency.value = 520;
+    lp.Q.value = 1.4;
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0, t);
+    g.gain.linearRampToValueAtTime(0.5, t + 0.35);
+    g.gain.linearRampToValueAtTime(0.35, t + dur * 0.7);
+    g.gain.linearRampToValueAtTime(0, t + dur);
+    lp.connect(g).connect(out);
+    const base = 150 + Math.random() * 50;
+    const fall = 0.82 + Math.random() * 0.12;
+    for (const mult of [1, 1.006, 1.5]) {
+      const o = ctx.createOscillator();
+      o.type = 'sawtooth';
+      o.frequency.setValueAtTime(base * mult, t);
+      o.frequency.linearRampToValueAtTime(base * mult * 1.12, t + dur * 0.3);
+      o.frequency.linearRampToValueAtTime(base * mult * fall, t + dur);
+      const vib = ctx.createOscillator();
+      vib.frequency.value = 5.5;
+      const vg = ctx.createGain();
+      vg.gain.value = 4;
+      vib.connect(vg).connect(o.frequency);
+      o.connect(lp);
+      o.start(t);
+      vib.start(t);
+      o.stop(t + dur + 0.05);
+      vib.stop(t + dur + 0.05);
+    }
+  }
+
+  /** A wet rattle in her throat when something catches her attention. */
+  playGrowl(pos: THREE.Vector3): void {
+    const ctx = this.ctx;
+    if (!ctx) return;
+    const t = ctx.currentTime;
+    const dur = 0.9;
+    const out = this.spatial(pos);
+    const o = ctx.createOscillator();
+    o.type = 'sawtooth';
+    o.frequency.setValueAtTime(82, t);
+    o.frequency.linearRampToValueAtTime(58, t + dur);
+    const rattle = ctx.createOscillator();
+    rattle.type = 'square';
+    rattle.frequency.value = 27;
+    const am = ctx.createGain();
+    am.gain.value = 0.5;
+    const rg = ctx.createGain();
+    rg.gain.value = 0.5;
+    rattle.connect(rg).connect(am.gain);
+    const lp = ctx.createBiquadFilter();
+    lp.type = 'lowpass';
+    lp.frequency.value = 700;
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0, t);
+    g.gain.linearRampToValueAtTime(0.8, t + 0.08);
+    g.gain.exponentialRampToValueAtTime(0.001, t + dur);
+    o.connect(am).connect(lp).connect(g).connect(out);
+    o.start(t);
+    rattle.start(t);
+    o.stop(t + dur + 0.05);
+    rattle.stop(t + dur + 0.05);
+  }
+
+  /** Electrical crackle from a surging bulb. */
+  playSpark(pos: THREE.Vector3): void {
+    const ctx = this.ctx;
+    if (!ctx) return;
+    const t = ctx.currentTime;
+    const out = this.spatial(pos);
+    for (let i = 0; i < 5; i++) {
+      const start = t + i * (0.02 + Math.random() * 0.05);
+      const src = ctx.createBufferSource();
+      src.buffer = this.noise;
+      const hp = ctx.createBiquadFilter();
+      hp.type = 'highpass';
+      hp.frequency.value = 3000 + Math.random() * 3000;
+      const g = ctx.createGain();
+      g.gain.setValueAtTime(0.5 * Math.random() + 0.2, start);
+      g.gain.exponentialRampToValueAtTime(0.001, start + 0.04);
+      src.connect(hp).connect(g).connect(out);
+      src.start(start, Math.random(), 0.06);
+    }
+    const hum = ctx.createOscillator();
+    hum.type = 'sawtooth';
+    hum.frequency.value = 100;
+    const hg = ctx.createGain();
+    hg.gain.setValueAtTime(0.12, t);
+    hg.gain.exponentialRampToValueAtTime(0.001, t + 0.5);
+    hum.connect(hg).connect(out);
+    hum.start(t);
+    hum.stop(t + 0.55);
+  }
+
+  /** Night survived: a cold open fifth swelling out of the dark. */
+  playEscape(): void {
+    const ctx = this.ctx;
+    if (!ctx) return;
+    const t = ctx.currentTime;
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0, t);
+    g.gain.linearRampToValueAtTime(0.28, t + 1.2);
+    g.gain.linearRampToValueAtTime(0, t + 5);
+    g.connect(this.master);
+    for (const f of [110, 164.8, 220, 329.6, 440]) {
+      const o = ctx.createOscillator();
+      o.type = 'sine';
+      o.frequency.value = f;
+      const og = ctx.createGain();
+      og.gain.value = f > 300 ? 0.35 : 1;
+      o.connect(og).connect(g);
+      o.start(t);
+      o.stop(t + 5.1);
+    }
+  }
+
+  /** Out of chances: a detuned cluster sinking into the floor. */
+  playGameOver(): void {
+    const ctx = this.ctx;
+    if (!ctx) return;
+    const t = ctx.currentTime;
+    const lp = ctx.createBiquadFilter();
+    lp.type = 'lowpass';
+    lp.frequency.setValueAtTime(900, t);
+    lp.frequency.exponentialRampToValueAtTime(120, t + 3.5);
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.3, t);
+    g.gain.linearRampToValueAtTime(0, t + 4);
+    lp.connect(g).connect(this.master);
+    for (const f of [98, 103.8, 146.8]) {
+      const o = ctx.createOscillator();
+      o.type = 'sawtooth';
+      o.frequency.setValueAtTime(f, t);
+      o.frequency.exponentialRampToValueAtTime(f * 0.5, t + 4);
+      o.connect(lp);
+      o.start(t);
+      o.stop(t + 4.1);
+    }
+  }
+
+  /** Call every frame while playing: now and then the house knocks or settles somewhere out of sight. */
+  updateAmbience(dt: number, listener: THREE.Vector3): void {
+    if (!this.ctx) return;
+    this.ambienceTimer -= dt;
+    if (this.ambienceTimer > 0) return;
+    this.ambienceTimer = 16 + Math.random() * 26;
+    const a = Math.random() * Math.PI * 2;
+    const d = 9 + Math.random() * 6;
+    const pos = new THREE.Vector3(listener.x + Math.cos(a) * d, 1 + Math.random() * 2, listener.z + Math.sin(a) * d);
+    if (Math.random() < 0.5) {
+      this.playCreak(pos, 3);
+    } else {
+      const knocks = 1 + Math.floor(Math.random() * 3);
+      for (let i = 0; i < knocks; i++) window.setTimeout(() => this.playImpact(pos, 1), i * 260);
+    }
   }
 
   suspend(): void {
@@ -174,20 +387,22 @@ export class AudioManager {
   }
 
   /** Call every frame. `intensity` 0..1 sets both the tempo and loudness; below ~0.08 it is silent. */
-  updateHeartbeat(dt: number, intensity: number): void {
-    const ctx = this.ctx;
-    if (!ctx) return;
+  updateHeartbeat(dt: number, intensity: number): boolean {
     if (intensity < 0.08) {
       this.heartTimer = 0;
-      return;
+      return false;
     }
     this.heartTimer -= dt;
-    if (this.heartTimer > 0) return;
+    if (this.heartTimer > 0) return false;
     this.heartTimer = 60 / (70 + 110 * intensity);
-    const t = ctx.currentTime;
-    const vol = 0.25 + 0.5 * intensity;
-    this.thump(t, vol);
-    this.thump(t + 0.17, vol * 0.7);
+    const ctx = this.ctx;
+    if (ctx) {
+      const t = ctx.currentTime;
+      const vol = 0.25 + 0.5 * intensity;
+      this.thump(t, vol);
+      this.thump(t + 0.17, vol * 0.7);
+    }
+    return true; // a beat landed this frame (drives the on-screen pulse even when muted)
   }
 
   /** Swells a low dissonant drone as the stalker closes in. `k` 0..1. */

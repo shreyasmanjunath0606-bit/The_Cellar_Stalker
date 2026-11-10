@@ -1,9 +1,11 @@
 import * as THREE from 'three';
 import { SoundBus } from '../ai/SoundBus';
 import { AudioManager } from '../audio/AudioManager';
+import { AreaId, LevelConfig } from '../core/Levels';
 import { Materials, scaleBoxUVs } from '../rendering/Materials';
 
 interface Zone {
+  area: AreaId;
   x0: number;
   x1: number;
   z0: number;
@@ -11,25 +13,43 @@ interface Zone {
   inside: boolean;
 }
 
+const zone = (area: AreaId, x0: number, x1: number, z0: number, z1: number): Zone => ({
+  area, x0, x1, z0, z1, inside: false,
+});
+
+/** Every loose patch in the cellar, in the order nights enable them. */
+const ZONES: Zone[] = [
+  zone('hall', -1.5, 1.5, -0.8, 1.2),
+  zone('north', -1.2, 1.2, -4.6, -3.2),
+  zone('east', 4.2, 5.9, -1.4, 1.4),
+  zone('hall', -5.6, -3.2, 3.0, 4.6),
+  zone('east', 8.2, 10.6, -1.2, 1.0),
+  zone('north', -1.6, 1.6, -8.2, -6.6),
+  zone('west', -10.6, -8.4, -1.2, 1.2),
+  zone('crypt', -10.5, -8.5, -6.9, -5.4),
+  zone('west', -5.8, -4.2, -1.2, 1.2),
+  zone('hall', 2.6, 5.0, 2.8, 4.6),
+];
+
 /** Worn boards that creak underfoot. Crouching mostly avoids them. */
 export class Floorboards {
   readonly group = new THREE.Group();
-  private readonly zones: Zone[] = [
-    { x0: -1.5, x1: 1.5, z0: -0.8, z1: 1.2, inside: false },
-    { x0: -1.2, x1: 1.2, z0: -4.6, z1: -3.2, inside: false },
-    { x0: 4.2, x1: 5.9, z0: -1.4, z1: 1.4, inside: false },
-    { x0: -5.6, x1: -3.2, z0: 3.0, z1: 4.6, inside: false },
-  ];
+  private readonly zones: Zone[];
   private cooldown = 0;
 
   constructor(
     mats: Materials,
     private readonly bus: SoundBus,
     private readonly audio: AudioManager,
+    cfg: LevelConfig,
   ) {
+    this.zones = ZONES.filter((z) => cfg.areas.includes(z.area))
+      .slice(0, cfg.creakZones)
+      .map((z) => ({ ...z }));
     // slightly darker, raised patches so players can learn where they are
     const mat = mats.wood.clone();
     mat.color.setHex(0x8a7a6a);
+    mat.userData.shared = false; // the clone belongs to this level
     for (const z of this.zones) {
       const w = z.x1 - z.x0;
       const d = z.z1 - z.z0;
