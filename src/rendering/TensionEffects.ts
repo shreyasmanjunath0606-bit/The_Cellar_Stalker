@@ -3,9 +3,22 @@ import { PostProcessing } from './PostProcessing';
 
 const BASE_FOV = 75;
 
+export interface Mood {
+  /** 0..1 — stalker proximity / line of sight. */
+  fear: number;
+  /** 0..1 — progress through the catch sequence. */
+  jump: number;
+  /** 0..1 — decaying spike on each heartbeat. */
+  pulse: number;
+  /** 0..1 — black-out amount (level fade-in). */
+  fade: number;
+  /** Peering out of a wardrobe: tighter, darker frame. */
+  hidden: boolean;
+}
+
 /**
- * Maps fear (stalker proximity / line of sight) and the jumpscare onto the
- * post-processing uniforms, camera shake and field of view.
+ * Maps fear and the jumpscare onto the post-processing uniforms, camera shake
+ * and field of view.
  */
 export class TensionEffects {
   constructor(
@@ -13,13 +26,18 @@ export class TensionEffects {
     private readonly camera: THREE.PerspectiveCamera,
   ) {}
 
-  /** `fear` and `jump` are both 0..1. Call after the camera has been positioned for the frame. */
-  update(elapsed: number, fear: number, jump: number): void {
+  /** Call after the camera has been positioned for the frame. */
+  update(elapsed: number, m: Mood): void {
+    const { fear, jump } = m;
     const u = this.post.uniforms;
     u.aberration.value = 0.0012 + fear * 0.0055 + jump * 0.02;
-    u.vignette.value = Math.min(1, 0.8 + fear * 0.2 + jump * 0.15);
-    u.grain.value = 0.1 + fear * 0.08 + jump * 0.2;
+    u.vignette.value = Math.min(1, (m.hidden ? 0.9 : 0.8) + fear * 0.2 + jump * 0.15);
+    u.grain.value = 0.05 + fear * 0.08 + jump * 0.2;
     u.distortion.value = jump * jump * 1.4;
+    u.fear.value = fear;
+    u.pulse.value = m.pulse;
+    u.glitch.value = Math.min(1, jump * 1.6);
+    u.fade.value = m.fade;
 
     const amp = fear * fear * 0.03 + jump * 0.05;
     if (amp > 0.0005) {
@@ -40,6 +58,6 @@ export class TensionEffects {
   reset(): void {
     this.camera.fov = BASE_FOV;
     this.camera.updateProjectionMatrix();
-    this.update(0, 0, 0);
+    this.update(0, { fear: 0, jump: 0, pulse: 0, fade: 0, hidden: false });
   }
 }

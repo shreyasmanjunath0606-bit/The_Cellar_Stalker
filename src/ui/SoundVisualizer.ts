@@ -16,7 +16,7 @@ export class SoundVisualizer {
   private readonly rings: Ring[] = [];
   private readonly geo = new THREE.SphereGeometry(1, 16, 10);
 
-  constructor(scene: THREE.Scene, bus: SoundBus) {
+  constructor(scene: THREE.Object3D, bus: SoundBus) {
     scene.add(this.group);
     bus.subscribe((e) => {
       if (!this.enabled) return;

@@ -1,8 +1,10 @@
 import * as THREE from 'three';
 import { Physics, RAPIER } from '../core/Physics';
+import { AreaId } from '../core/Levels';
 import { SoundBus } from '../ai/SoundBus';
 import { AudioManager } from '../audio/AudioManager';
 import { Materials, scaleBoxUVs } from '../rendering/Materials';
+import { Effects } from '../rendering/Effects';
 
 export type PropKind = 'vase' | 'chair' | 'bucket';
 
@@ -26,15 +28,19 @@ export class PropManager {
   private readonly props: Prop[] = [];
   private readonly byCollider = new Map<number, Prop>();
   private readonly ceramic = new THREE.MeshStandardMaterial({ color: 0x6b5a45, roughness: 0.45 });
-  private readonly tin = new THREE.MeshStandardMaterial({ color: 0x6a6e70, roughness: 0.45, metalness: 0.8, side: THREE.DoubleSide });
+  private readonly tin = new THREE.MeshStandardMaterial({
+    color: 0x6a6e70, roughness: 0.45, metalness: 0.8, side: THREE.DoubleSide,
+  });
 
   constructor(
     private readonly physics: Physics,
     private readonly mats: Materials,
     private readonly bus: SoundBus,
     private readonly audio: AudioManager,
+    private readonly fx: Effects,
+    areas: AreaId[],
   ) {
-    this.build();
+    this.build(areas);
   }
 
   propFromCollider(handle: number): Prop | undefined {
@@ -91,10 +97,12 @@ export class PropManager {
         break;
       case 'chair':
         this.audio.playImpact(pos, 0.4 + k * 0.6);
+        this.fx.puff(pos, 6);
         this.bus.emit(pos, THREE.MathUtils.clamp(speed * 7, 6, 16), 'prop');
         break;
       case 'bucket':
         this.audio.playImpact(pos, 0.4 + k * 0.6, true);
+        this.fx.puff(pos, 4);
         this.bus.emit(pos, THREE.MathUtils.clamp(speed * 9, 8, 22), 'prop');
         break;
     }
@@ -105,38 +113,55 @@ export class PropManager {
     this.byCollider.delete(p.colliders[0].handle);
     this.physics.world.removeRigidBody(p.body);
     p.mesh.visible = false;
-    for (let i = 0; i < 7; i++) {
+    for (let i = 0; i < 9; i++) {
       const shard = new THREE.Mesh(new THREE.TetrahedronGeometry(0.03 + Math.random() * 0.04), this.ceramic);
-      shard.position.set(pos.x + (Math.random() - 0.5) * 0.5, 0.03, pos.z + (Math.random() - 0.5) * 0.5);
+      shard.position.set(pos.x + (Math.random() - 0.5) * 0.6, 0.03, pos.z + (Math.random() - 0.5) * 0.6);
       shard.rotation.set(Math.random() * 3, Math.random() * 3, Math.random() * 3);
       shard.castShadow = true;
       this.group.add(shard);
     }
+    this.fx.shatter(pos);
     this.audio.playShatter(pos);
     this.bus.emit(pos, 20, 'shatter');
   }
 
-  private build(): void {
-    // table with two vases (hall)
-    this.table(-4.6, 0.5);
-    this.vase(-4.85, 0.78, 0.5);
-    this.vase(-4.4, 0.78, 0.35);
-    // vases on the floor / on a crate
-    this.vase(7.0, 0, -1.6);
-    this.vase(2.6, 0.8, -10.8);
+  private build(areas: AreaId[]): void {
+    const has = (a: AreaId): boolean => areas.includes(a);
 
+    // hall: side table with two vases, a couple of chairs
+    this.table(-5.4, 2.0);
+    this.vase(-5.5, 0.78, 1.6);
+    this.vase(-5.3, 0.78, 2.4);
     this.chair(-2.2, -3.3, 0.6);
     this.chair(2.0, 3.8, 2.4);
-    this.chair(-2.5, -8.0, -0.8);
-    this.chair(10.0, 2.4, 1.9);
 
-    this.bucket(10.2, -3.4);
-    this.bucket(1.6, -6.0);
+    if (has('east')) {
+      this.vase(7.0, 0, -1.6);
+      this.chair(10.0, 2.4, 1.9);
+      this.bucket(10.2, -3.4);
+    }
+    if (has('north')) {
+      this.vase(2.2, 0.8, -10.8); // on the crate
+      this.chair(-2.9, -6.3, -0.8);
+      this.bucket(1.6, -6.0);
+    }
+    if (has('west')) {
+      this.vase(-7.2, 0, -3.0);
+      this.vase(-9.0, 0.9, 4.4); // on the workbench
+      this.chair(-8.0, 2.0, 1.0);
+      this.bucket(-11.0, 3.6);
+      this.bucket(-7.4, 0.9);
+    }
+    if (has('crypt')) {
+      this.vase(-9, 0.9, -8.5); // on the altar
+      this.vase(-12.0, 0, -6.4);
+      this.bucket(-6.4, -6.4);
+      this.chair(-11.6, -11.0, 2.2);
+    }
   }
 
   private table(x: number, z: number): void {
-    const top = this.box(x, 0.75, z, 0.7, 0.06, 1.3);
-    void top;
+    this.box(x, 0.75, z, 0.7, 0.06, 1.3);
     for (const [dx, dz] of [[-0.3, -0.6], [0.3, -0.6], [-0.3, 0.6], [0.3, 0.6]]) {
       this.box(x + dx, 0.36, z + dz, 0.06, 0.72, 0.06);
     }
@@ -193,6 +218,10 @@ export class PropManager {
 
   private bucket(x: number, z: number): void {
     const mesh = new THREE.Mesh(new THREE.CylinderGeometry(0.17, 0.13, 0.3, 16, 1, true), this.tin);
+    const base = new THREE.Mesh(new THREE.CircleGeometry(0.13, 16), this.tin);
+    base.rotation.x = Math.PI / 2;
+    base.position.y = -0.15;
+    mesh.add(base);
     mesh.castShadow = true;
     this.group.add(mesh);
     this.addBody('bucket', mesh, x, 0.16, z, 0, [

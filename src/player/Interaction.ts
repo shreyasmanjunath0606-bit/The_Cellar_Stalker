@@ -1,20 +1,25 @@
 import * as THREE from 'three';
 import { Physics, RAPIER } from '../core/Physics';
 import { Input } from '../core/Input';
-import { AudioManager } from '../audio/AudioManager';
 import { PropManager } from '../environment/Props';
-import { Pickups } from '../environment/Pickups';
-import { House } from '../environment/House';
-import { SoundBus } from '../ai/SoundBus';
+import { Pickup, Pickups } from '../environment/Pickups';
+import { HideSpot, House } from '../environment/House';
 import { Inventory } from './Inventory';
-import { Flashlight } from './Flashlight';
 import { PlayerController } from './PlayerController';
-import { HUD } from '../ui/HUD';
 
 const SHOVE_REACH = 2.2;
-const BATTERY_CHARGE = 50;
 
-/** E picks things up, left click shoves a prop in front of you. */
+export interface InteractionEvents {
+  onPickup(item: Pickup): void;
+  onUnlock(): void;
+  /** Return true if a stalker is watching the player right now. */
+  isWatched(): boolean;
+  onHide(spot: HideSpot, watched: boolean): void;
+  onUnhide(): void;
+  setPrompt(text: string | null): void;
+}
+
+/** E picks things up, hides and unlocks; left click shoves a prop in front of you. */
 export class Interaction {
   private readonly dir = new THREE.Vector3();
 
@@ -22,49 +27,58 @@ export class Interaction {
     private readonly physics: Physics,
     private readonly camera: THREE.Camera,
     private readonly input: Input,
-    private readonly audio: AudioManager,
     private readonly player: PlayerController,
     private readonly props: PropManager,
     private readonly pickups: Pickups,
     private readonly inventory: Inventory,
-    private readonly flashlight: Flashlight,
-    private readonly hud: HUD,
     private readonly house: House,
-    private readonly bus: SoundBus,
+    private readonly events: InteractionEvents,
   ) {}
 
   update(): void {
+    const use = this.input.wasPressed('KeyE');
+
+    if (this.player.hidden) {
+      this.events.setPrompt('E — step out');
+      if (use) {
+        this.player.unhide();
+        this.events.onUnhide();
+      }
+      return;
+    }
+
     this.camera.getWorldDirection(this.dir);
     const origin = this.camera.position;
 
-    const focus = this.pickups.focus(origin, this.dir);
-    let prompt = focus ? `E — take ${focus.type}` : null;
-    if (!focus && this.house.canInteractDoor(origin, this.dir)) {
+    const item = this.pickups.focus(origin, this.dir);
+    const spot = item ? null : this.house.focusHideSpot(origin, this.dir);
+    let prompt: string | null = null;
+
+    if (item) {
+      prompt = `E — take ${item.type}`;
+      if (use) {
+        this.pickups.collect(item);
+        this.events.onPickup(item);
+      }
+    } else if (spot) {
+      prompt = 'E — hide';
+      if (use) {
+        const watched = this.events.isWatched();
+        this.player.hide(spot, watched);
+        this.events.onHide(spot, watched);
+      }
+    } else if (this.house.canInteractDoor(origin, this.dir)) {
       if (this.inventory.hasAllKeys) {
-        prompt = 'E — unlock cellar door';
-        if (this.input.wasPressed('KeyE')) {
+        prompt = 'E — unlock the cellar door';
+        if (use) {
           this.house.unlockDoor();
-          const doorPos = new THREE.Vector3(0, 1, 5);
-          this.audio.playImpact(doorPos, 0.8, true);
-          this.audio.playDoorOpen(doorPos);
-          this.bus.emit(doorPos, 22, 'prop'); // the grinding door carries through the whole cellar
+          this.events.onUnlock();
         }
       } else {
-        prompt = `CELLAR DOOR LOCKED — KEYS ${this.inventory.keys}/${this.inventory.keysRequired}`;
+        prompt = `LOCKED — ${this.inventory.keys} of ${this.inventory.keysRequired} keys`;
       }
     }
-    this.hud.setPrompt(prompt);
-    if (focus && this.input.wasPressed('KeyE')) {
-      this.pickups.collect(focus);
-      if (focus.type === 'key') {
-        this.inventory.keys++;
-        this.hud.setKeys(this.inventory.keys, this.inventory.keysRequired);
-      } else {
-        this.inventory.batteries++;
-        this.flashlight.addBattery(BATTERY_CHARGE);
-      }
-      this.audio.playPickup();
-    }
+    this.events.setPrompt(prompt);
 
     if (this.input.wasPressed('Mouse0')) this.shove(origin);
   }
