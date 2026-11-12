@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { Physics, RAPIER } from '../core/Physics';
-import { AreaId } from '../core/Levels';
+import { FLOOR_H } from './HouseKit';
 import { SoundBus } from '../ai/SoundBus';
 import { AudioManager } from '../audio/AudioManager';
 import { Materials, scaleBoxUVs } from '../rendering/Materials';
@@ -9,6 +9,7 @@ import { Effects } from '../rendering/Effects';
 export type PropKind = 'vase' | 'chair' | 'bucket';
 
 export interface Prop {
+  id: number;
   kind: PropKind;
   body: RAPIER.RigidBody;
   colliders: RAPIER.Collider[];
@@ -38,9 +39,12 @@ export class PropManager {
     private readonly bus: SoundBus,
     private readonly audio: AudioManager,
     private readonly fx: Effects,
-    areas: AreaId[],
   ) {
-    this.build(areas);
+    this.build();
+  }
+
+  get(id: number): Prop | undefined {
+    return this.props[id];
   }
 
   propFromCollider(handle: number): Prop | undefined {
@@ -115,7 +119,7 @@ export class PropManager {
     p.mesh.visible = false;
     for (let i = 0; i < 9; i++) {
       const shard = new THREE.Mesh(new THREE.TetrahedronGeometry(0.03 + Math.random() * 0.04), this.ceramic);
-      shard.position.set(pos.x + (Math.random() - 0.5) * 0.6, 0.03, pos.z + (Math.random() - 0.5) * 0.6);
+      shard.position.set(pos.x + (Math.random() - 0.5) * 0.6, (pos.y > FLOOR_H - 0.2 ? FLOOR_H : 0) + 0.03, pos.z + (Math.random() - 0.5) * 0.6);
       shard.rotation.set(Math.random() * 3, Math.random() * 3, Math.random() * 3);
       shard.castShadow = true;
       this.group.add(shard);
@@ -125,57 +129,61 @@ export class PropManager {
     this.bus.emit(pos, 20, 'shatter');
   }
 
-  private build(areas: AreaId[]): void {
-    const has = (a: AreaId): boolean => areas.includes(a);
+  private build(): void {
+    const U = FLOOR_H;
+    // ---- ground floor ----
+    // kitchen
+    this.chair(-10, -6.05, Math.PI);
+    this.chair(-10, -7.98, 0);
+    this.vase(-9.5, 0.78, -6.8);
+    this.bucket(-6, -10.1);
+    // dining room
+    this.chair(-1, -6.45, Math.PI);
+    this.chair(1, -8.55, 0);
+    this.chair(2.2, -6.45, Math.PI);
+    this.vase(-0.8, 0.78, -7.5);
+    this.vase(-4.6, 0.94, -4.9);
+    // library
+    this.vase(7.2, 0, -4.6);
+    this.chair(12.6, -5.5, -Math.PI / 2);
+    // corridor
+    this.vase(-13.5, 0.78, -2.85);
+    // living room
+    this.vase(-11.3, 0.45, 4.4);
+    this.vase(-5.42, 0.94, 4.0);
+    this.chair(-7, 1, 2.2);
+    this.bucket(-13.3, 2.2);
+    // entrance hall
+    this.vase(1.7, 0, 8.55);
+    // study
+    this.chair(9.5, 7.5, Math.PI);
+    this.vase(11.9, 0.9, -0.42);
+    this.bucket(13.3, 2.2);
+    // garage
+    this.bucket(16.6, -0.3);
+    this.bucket(20.9, 8.4);
+    this.chair(14.9, 6.4, 1.2);
 
-    // hall: side table with two vases, a couple of chairs
-    this.table(-5.4, 2.0);
-    this.vase(-5.5, 0.78, 1.6);
-    this.vase(-5.3, 0.78, 2.4);
-    this.chair(-2.2, -3.3, 0.6);
-    this.chair(2.0, 3.8, 2.4);
-
-    if (has('east')) {
-      this.vase(7.0, 0, -1.6);
-      this.chair(10.0, 2.4, 1.9);
-      this.bucket(10.2, -3.4);
-    }
-    if (has('north')) {
-      this.vase(2.2, 0.8, -10.8); // on the crate
-      this.chair(-2.9, -6.3, -0.8);
-      this.bucket(1.6, -6.0);
-    }
-    if (has('west')) {
-      this.vase(-7.2, 0, -3.0);
-      this.vase(-9.0, 0.9, 4.4); // on the workbench
-      this.chair(-8.0, 2.0, 1.0);
-      this.bucket(-11.0, 3.6);
-      this.bucket(-7.4, 0.9);
-    }
-    if (has('crypt')) {
-      this.vase(-9, 0.9, -8.5); // on the altar
-      this.vase(-12.0, 0, -6.4);
-      this.bucket(-6.4, -6.4);
-      this.chair(-11.6, -11.0, 2.2);
-    }
-  }
-
-  private table(x: number, z: number): void {
-    this.box(x, 0.75, z, 0.7, 0.06, 1.3);
-    for (const [dx, dz] of [[-0.3, -0.6], [0.3, -0.6], [-0.3, 0.6], [0.3, 0.6]]) {
-      this.box(x + dx, 0.36, z + dz, 0.06, 0.72, 0.06);
-    }
-  }
-
-  private box(cx: number, cy: number, cz: number, w: number, h: number, d: number): THREE.Mesh {
-    const geo = new THREE.BoxGeometry(w, h, d);
-    scaleBoxUVs(geo, w, h, d);
-    const mesh = new THREE.Mesh(geo, this.mats.wood);
-    mesh.position.set(cx, cy, cz);
-    mesh.castShadow = mesh.receiveShadow = true;
-    this.group.add(mesh);
-    this.physics.addStaticBox(cx, cy, cz, w, h, d);
-    return mesh;
+    // ---- upstairs ----
+    // guest bedroom
+    this.chair(-6.35, 5, -Math.PI / 2, U);
+    this.vase(-10.0, U + 0.94, 8.58);
+    // landing
+    this.vase(4.55, U + 0.8, 7.05);
+    // master bedroom
+    this.vase(11.9, U + 0.94, -0.56);
+    this.chair(8, 7.9, 2.6, U);
+    // her bedroom
+    this.vase(-6.9, U, -4.6);
+    this.chair(-12.6, -4.75, 0.4, U);
+    // bathroom
+    this.bucket(3.9, -9.6, U);
+    this.vase(-0.9, U, -10.4);
+    // nursery
+    this.bucket(12.6, -4.6, U);
+    this.vase(6, U, -6.4);
+    // upstairs corridor
+    this.vase(13.5, U + 0.78, -2.95);
   }
 
   /** `surfaceY` is the height of whatever the vase stands on. */
@@ -191,7 +199,7 @@ export class PropManager {
     ]);
   }
 
-  private chair(x: number, z: number, rotY: number): void {
+  private chair(x: number, z: number, rotY: number, y0 = 0): void {
     const g = new THREE.Group();
     const part = (w: number, h: number, d: number, px: number, py: number, pz: number): void => {
       const geo = new THREE.BoxGeometry(w, h, d);
@@ -213,10 +221,10 @@ export class PropManager {
       R.cuboid(0.225, 0.25, 0.025).setTranslation(0, 0.27, -0.2),
       ...legs.map(([lx, lz]) => R.cuboid(0.02, 0.225, 0.02).setTranslation(lx, -0.25, lz)),
     ].map((d) => d.setDensity(150).setFriction(0.6));
-    this.addBody('chair', g, x, 0.475, z, rotY, descs);
+    this.addBody('chair', g, x, y0 + 0.475, z, rotY, descs);
   }
 
-  private bucket(x: number, z: number): void {
+  private bucket(x: number, z: number, y0 = 0): void {
     const mesh = new THREE.Mesh(new THREE.CylinderGeometry(0.17, 0.13, 0.3, 16, 1, true), this.tin);
     const base = new THREE.Mesh(new THREE.CircleGeometry(0.13, 16), this.tin);
     base.rotation.x = Math.PI / 2;
@@ -224,7 +232,7 @@ export class PropManager {
     mesh.add(base);
     mesh.castShadow = true;
     this.group.add(mesh);
-    this.addBody('bucket', mesh, x, 0.16, z, 0, [
+    this.addBody('bucket', mesh, x, y0 + 0.16, z, 0, [
       RAPIER.ColliderDesc.cylinder(0.15, 0.15).setRestitution(0.4).setDensity(200),
     ]);
   }
@@ -248,7 +256,7 @@ export class PropManager {
     const colliders = descs.map((d) =>
       this.physics.world.createCollider(d.setActiveEvents(RAPIER.ActiveEvents.COLLISION_EVENTS), body),
     );
-    const prop: Prop = { kind, body, colliders, mesh, impactSpeed: 0, cooldown: 0.5, broken: false };
+    const prop: Prop = { id: this.props.length, kind, body, colliders, mesh, impactSpeed: 0, cooldown: 0.5, broken: false };
     this.props.push(prop);
     for (const c of colliders) this.byCollider.set(c.handle, prop);
     mesh.position.set(x, y, z);

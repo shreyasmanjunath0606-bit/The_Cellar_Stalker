@@ -2,8 +2,12 @@ import * as THREE from 'three';
 
 export interface PoseInput {
   x: number;
+  /** Feet height. */
+  y: number;
   z: number;
   yaw: number;
+  /** 0..1 - collapsed on the floor, asleep. */
+  down: number;
   speed: number;
   /** Arms reach forward (chase / attack). */
   reaching: boolean;
@@ -58,6 +62,7 @@ export class StalkerModel {
   private readonly enraged: THREE.Color;
   private readonly tint = new THREE.Color();
   private rage = 0;
+  private down = 0;
   private phase = 0;
   private steps = 0;
   private t = Math.random() * 10;
@@ -231,8 +236,11 @@ export class StalkerModel {
     const s = Math.sin(this.phase);
     const c = Math.cos(this.phase);
 
-    this.root.position.set(p.x, 0, p.z);
-    this.root.rotation.y = p.yaw;
+    // asleep: she topples onto her back and the eyes go out
+    this.down += (p.down - this.down) * damp(5, dt);
+    this.root.rotation.order = 'YXZ';
+    this.root.position.set(p.x, p.y + this.down * 0.22, p.z);
+    this.root.rotation.set(-this.down * (Math.PI / 2 - 0.08), p.yaw, 0);
 
     this.hips.position.y = 0.95 + (moving ? Math.abs(c) * 0.035 * k : Math.sin(this.t * 1.6) * 0.006);
     this.legL.rotation.x = s * 0.55 * k;
@@ -276,10 +284,11 @@ export class StalkerModel {
     this.rage += (p.rage - this.rage) * damp(4, dt);
     this.tint.copy(this.calm).lerp(this.enraged, this.rage);
     const flicker = 0.85 + 0.15 * Math.sin(this.t * 17);
-    this.eyeMat.color.copy(this.tint).multiplyScalar((7 + this.rage * 9) * flicker);
+    const awake = 1 - this.down * 0.97;
+    this.eyeMat.color.copy(this.tint).multiplyScalar((7 + this.rage * 9) * flicker * awake);
     for (const h of this.halos) {
       h.material.color.copy(this.tint);
-      h.material.opacity = 0.35 + this.rage * 0.5;
+      h.material.opacity = (0.35 + this.rage * 0.5) * awake;
       h.scale.setScalar(0.11 + this.rage * 0.13);
     }
 

@@ -1,25 +1,33 @@
 import * as THREE from 'three';
 import { Physics, RAPIER } from '../core/Physics';
 import { Input } from '../core/Input';
-import { PropManager } from '../environment/Props';
-import { Pickup, Pickups } from '../environment/Pickups';
+import { Prop, PropManager } from '../environment/Props';
+import { Item, Items } from '../environment/Items';
 import { HideSpot, House } from '../environment/House';
-import { Inventory } from './Inventory';
+import { Objectives, RouteId, Station } from '../environment/Objectives';
+import { Distraction, Distractions } from '../environment/Distractions';
+import { Inventory, ITEM_NAMES } from './Inventory';
 import { PlayerController } from './PlayerController';
 
 const SHOVE_REACH = 2.2;
 
 export interface InteractionEvents {
-  onPickup(item: Pickup): void;
-  onUnlock(): void;
-  /** Return true if a stalker is watching the player right now. */
-  isWatched(): boolean;
-  onHide(spot: HideSpot, watched: boolean): void;
+  onPickup(item: Item): void;
+  onStep(station: Station, index: number): void;
+  /** Leave by a finished route (drive away, climb down). */
+  onExit(route: RouteId): void;
+  onDistract(d: Distraction): void;
+  onHide(spot: HideSpot): void;
   onUnhide(): void;
+  onShove(prop: Prop, dir: THREE.Vector3, point: THREE.Vector3): void;
+  /** Left click: fire a dart if one can be fired. Returns true if the click was used. */
+  onFire(origin: THREE.Vector3, dir: THREE.Vector3): boolean;
+  /** Another player is already in this hiding place. */
+  hideTaken(spot: HideSpot): boolean;
   setPrompt(text: string | null): void;
 }
 
-/** E picks things up, hides and unlocks; left click shoves a prop in front of you. */
+/** E takes, hides, works on the way out and sets off distractions; left click fires a dart or shoves a prop. */
 export class Interaction {
   private readonly dir = new THREE.Vector3();
 
@@ -29,9 +37,11 @@ export class Interaction {
     private readonly input: Input,
     private readonly player: PlayerController,
     private readonly props: PropManager,
-    private readonly pickups: Pickups,
+    private readonly items: Items,
     private readonly inventory: Inventory,
     private readonly house: House,
+    private readonly objectives: Objectives,
+    private readonly distractions: Distractions,
     private readonly events: InteractionEvents,
   ) {}
 
@@ -39,7 +49,7 @@ export class Interaction {
     const use = this.input.wasPressed('KeyE');
 
     if (this.player.hidden) {
-      this.events.setPrompt('E — step out');
+      this.events.setPrompt('E — come out');
       if (use) {
         this.player.unhide();
         this.events.onUnhide();
@@ -49,38 +59,61 @@ export class Interaction {
 
     this.camera.getWorldDirection(this.dir);
     const origin = this.camera.position;
-
-    const item = this.pickups.focus(origin, this.dir);
-    const spot = item ? null : this.house.focusHideSpot(origin, this.dir);
     let prompt: string | null = null;
 
+    const item = this.items.focus(origin, this.dir);
+    const station = item ? null : this.objectives.focus(origin, this.dir);
+    const noise = item || station ? null : this.distractions.focus(origin, this.dir);
+    const spot = item || station || noise ? null : this.house.focusHideSpot(origin, this.dir);
+
     if (item) {
-      prompt = `E — take ${item.type}`;
-      if (use) {
-        this.pickups.collect(item);
-        this.events.onPickup(item);
+      prompt = `E — take the ${ITEM_NAMES[item.type]}`;
+      if (use) this.events.onPickup(item);
+    } else if (station) {
+      prompt = this.stationPrompt(station, use);
+    } else if (noise) {
+      if (this.distractions.ready(noise)) {
+        prompt = `E — ${this.distractions.verb(noise)}`;
+        if (use) this.events.onDistract(noise);
+      } else {
+        prompt = noise.left > 0 ? null : 'It needs a moment before it will go again';
       }
     } else if (spot) {
-      prompt = 'E — hide';
-      if (use) {
-        const watched = this.events.isWatched();
-        this.player.hide(spot, watched);
-        this.events.onHide(spot, watched);
-      }
-    } else if (this.house.canInteractDoor(origin, this.dir)) {
-      if (this.inventory.hasAllKeys) {
-        prompt = 'E — unlock the cellar door';
-        if (use) {
-          this.house.unlockDoor();
-          this.events.onUnlock();
-        }
+      if (this.events.hideTaken(spot)) {
+        prompt = 'Someone is already hiding here';
       } else {
-        prompt = `LOCKED — ${this.inventory.keys} of ${this.inventory.keysRequired} keys`;
+        prompt = spot.kind === 'bed' ? 'E — crawl under the bed' : 'E — hide inside';
+        if (use) {
+          this.player.hide(spot);
+          this.events.onHide(spot);
+        }
       }
     }
     this.events.setPrompt(prompt);
 
-    if (this.input.wasPressed('Mouse0')) this.shove(origin);
+    if (this.input.wasPressed('Mouse0') && !this.events.onFire(origin, this.dir)) this.shove(origin);
+  }
+
+  private stationPrompt(station: Station, use: boolean): string | null {
+    const next = this.objectives.next(station);
+    if (!next) {
+      const exit = this.objectives.exitVerb(station);
+      if (!exit) return null;
+      if (use) this.events.onExit(station.route);
+      return `E — ${exit}`;
+    }
+    const blocked = this.objectives.blocked(station);
+    if (blocked) return blocked;
+    const { step, index } = next;
+    const have = this.inventory.count(step.needs);
+    if (have >= step.count) {
+      if (use) this.events.onStep(station, index);
+      return `E — ${step.verb}`;
+    }
+    const name = ITEM_NAMES[step.needs].toUpperCase();
+    return step.count > 1
+      ? `LOCKED — needs ${step.count} ${name}S (you have ${have})`
+      : `Needs the ${name}`;
   }
 
   private shove(origin: THREE.Vector3): void {
@@ -90,6 +123,6 @@ export class Interaction {
     const prop = this.props.propFromCollider(hit.collider.handle);
     if (!prop) return;
     const point = origin.clone().addScaledVector(this.dir, hit.timeOfImpact);
-    this.props.shove(prop, this.dir, point);
+    this.events.onShove(prop, this.dir.clone(), point);
   }
 }

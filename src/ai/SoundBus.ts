@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 
-export type SoundSource = 'footstep' | 'prop' | 'shatter' | 'floorboard';
+export type SoundSource = 'footstep' | 'prop' | 'shatter' | 'floorboard' | 'distraction' | 'work';
 
 export interface SoundEvent {
   position: THREE.Vector3;

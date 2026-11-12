@@ -34,15 +34,27 @@
 #hud .bar.battery.low > i { background: var(--blood); animation: low 0.6s infinite alternate; }
 @keyframes low { to { opacity: 0.35; } }
 
-#hud .keys { position: absolute; right: 24px; bottom: 24px; display: flex; gap: 10px; }
-#hud .keys span { width: 34px; color: rgba(207, 200, 184, 0.22); transition: color 0.4s, filter 0.4s; }
-#hud .keys span.have { color: #f0c860; filter: drop-shadow(0 0 6px rgba(240, 200, 96, 0.8)); }
-#hud .keys.all span { animation: allkeys 1s infinite alternate; }
-@keyframes allkeys { to { filter: drop-shadow(0 0 12px rgba(240, 200, 96, 1)); } }
-#hud .keys svg { display: block; }
+#hud .side { position: absolute; right: 24px; bottom: 24px; display: grid; gap: 10px; justify-items: end; font-size: 11px; letter-spacing: 0.12em; text-shadow: 0 0 6px #000; max-width: 46vw; }
+#hud .route { display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: 4px 8px; margin-bottom: 5px; }
+#hud .route b { font-weight: normal; opacity: 0.75; margin-right: 4px; text-transform: uppercase; }
+#hud .route span { padding: 2px 7px; border: 1px solid rgba(207, 200, 184, 0.28); background: rgba(0, 0, 0, 0.45); color: rgba(207, 200, 184, 0.6); text-transform: uppercase; }
+#hud .route span.done { color: #10140c; background: #9fbf7f; border-color: #9fbf7f; text-shadow: none; }
+#hud .route.open b { color: #9fdf8f; opacity: 1; animation: low 0.8s infinite alternate; }
+#hud .bag { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 4px 8px; align-items: center; }
+#hud .bag label { opacity: 0.6; }
+#hud .bag span { padding: 2px 7px; background: rgba(240, 200, 96, 0.16); border: 1px solid rgba(240, 200, 96, 0.5); color: #f0c860; text-transform: uppercase; }
+#hud .bag span.none { background: none; border-color: transparent; color: var(--dim); }
+#hud .team { position: absolute; left: 24px; top: 48px; display: grid; gap: 4px; font-size: 11px; letter-spacing: 0.14em; text-shadow: 0 0 6px #000; text-transform: uppercase; }
+#hud .team div { display: flex; align-items: center; gap: 8px; opacity: 0.8; }
+#hud .team div.me { opacity: 1; }
+#hud .team i { width: 8px; height: 8px; border-radius: 50%; }
+#hud .team em { font-style: normal; opacity: 0.6; }
+#hud .sleep { position: absolute; left: 50%; top: 56px; transform: translateX(-50%); font-size: 12px; letter-spacing: 0.3em; padding: 5px 14px; color: #c9a8ff; background: rgba(30, 14, 50, 0.6); border: 1px solid rgba(192, 128, 255, 0.5); opacity: 0; transition: opacity 0.4s; white-space: nowrap; }
+#hud .sleep.on { opacity: 1; }
+#hud .sleep.ending { color: #ff8a78; border-color: var(--blood); animation: low 0.5s infinite alternate; }
 
 #hud .prompt { position: absolute; left: 50%; top: 58%; transform: translateX(-50%); font-size: 14px; letter-spacing: 0.15em; text-shadow: 0 0 6px #000, 0 0 2px #000; white-space: nowrap; }
-#hud .toast { position: absolute; left: 50%; top: 68%; transform: translate(-50%, 8px); font-size: 13px; letter-spacing: 0.2em; padding: 8px 18px; background: rgba(0, 0, 0, 0.55); border-left: 2px solid var(--amber); opacity: 0; transition: opacity 0.35s, transform 0.35s; white-space: nowrap; }
+#hud .toast { position: absolute; left: 50%; top: 68%; transform: translate(-50%, 8px); font-size: 13px; letter-spacing: 0.2em; padding: 8px 18px; background: rgba(0, 0, 0, 0.55); border-left: 2px solid var(--amber); opacity: 0; transition: opacity 0.35s, transform 0.35s; max-width: 86vw; text-align: center; }
 #hud .toast.on { opacity: 1; transform: translate(-50%, 0); }
 #hud .toast.warn { border-left-color: var(--blood); color: #ff8a78; }
 
@@ -57,7 +69,7 @@
 #hud .blink { position: absolute; inset: 0; background: #000; opacity: 0; }
 #hud .blink.go { animation: blink 0.55s ease-out; }
 @keyframes blink { 0% { opacity: 1; } 35% { opacity: 1; } 100% { opacity: 0; } }
-#hud .debug { position: absolute; left: 24px; top: 48px; font-size: 12px; letter-spacing: 0.08em; color: #7fbf7f; white-space: pre; }
+#hud .debug { position: absolute; left: 24px; top: 150px; font-size: 12px; letter-spacing: 0.08em; color: #7fbf7f; white-space: pre; }
 
 /* ---------------------------------------------------------- jumpscare */
 .jumpscare { position: fixed; inset: 0; pointer-events: none; display: none; }
@@ -140,3 +152,21 @@
 @media (prefers-reduced-motion: reduce) {
   #menu h1, #hud .eye.hunt, #menu .card .click { animation: none; }
 }
+
+/* ------------------------------------------------------- co-op and difficulty */
+#menu .lobby-code { font-family: var(--serif); font-size: clamp(38px, 7vw, 70px); letter-spacing: 0.3em; color: var(--amber); margin: 0 0 4px; user-select: text; }
+#menu .roster { display: grid; gap: 6px; margin: 16px 0 20px; font-size: 14px; letter-spacing: 0.16em; text-transform: uppercase; }
+#menu .roster div { display: flex; align-items: center; gap: 10px; padding: 7px 10px; background: rgba(0, 0, 0, 0.4); border: 1px solid rgba(207, 200, 184, 0.16); }
+#menu .roster div.empty { opacity: 0.35; }
+#menu .roster i { width: 10px; height: 10px; border-radius: 50%; }
+#menu .roster em { margin-left: auto; font-style: normal; font-size: 11px; opacity: 0.6; }
+#menu input[type='text'] { font: inherit; font-size: 16px; letter-spacing: 0.2em; text-transform: uppercase; color: var(--bone); background: rgba(0, 0, 0, 0.55); border: 1px solid rgba(207, 200, 184, 0.35); padding: 10px 12px; width: 100%; box-sizing: border-box; outline: none; }
+#menu input[type='text']:focus { border-color: var(--blood); }
+#menu .form { display: grid; gap: 14px; font-size: 12px; letter-spacing: 0.18em; text-transform: uppercase; margin-bottom: 18px; }
+#menu .form label { display: grid; gap: 6px; }
+#menu .error { color: #ff8a78; font-size: 13px; letter-spacing: 0.1em; min-height: 1.4em; margin: 0 0 10px; }
+#menu .field-label { font-size: 12px; letter-spacing: 0.18em; text-transform: uppercase; opacity: 0.7; margin: 14px 0 6px; }
+#menu .blurb { font-size: 12px; letter-spacing: 0.06em; opacity: 0.75; line-height: 1.5; margin: 8px 0 16px; min-height: 2.6em; }
+#menu .seg.wrap { flex-wrap: wrap; }
+#menu .check { display: flex !important; gap: 10px; align-items: center; cursor: pointer; }
+#menu .check input { accent-color: var(--blood); width: 16px; height: 16px; }

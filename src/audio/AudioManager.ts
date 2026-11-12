@@ -555,6 +555,144 @@ export class AudioManager {
     }
   }
 
+  /** A short enveloped tone at a place in the world. */
+  private tone(
+    out: AudioNode, type: OscillatorType, freq: number, at: number, dur: number, gain: number, slideTo = freq,
+  ): void {
+    const ctx = this.ctx!;
+    const t = ctx.currentTime + at;
+    const o = ctx.createOscillator();
+    o.type = type;
+    o.frequency.setValueAtTime(freq, t);
+    if (slideTo !== freq) o.frequency.exponentialRampToValueAtTime(slideTo, t + dur);
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(gain, t + 0.012);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    o.connect(g).connect(out);
+    o.start(t);
+    o.stop(t + dur + 0.05);
+  }
+
+  /** A burst of filtered noise at a place in the world. */
+  private hiss(out: AudioNode, freq: number, q: number, at: number, dur: number, gain: number): void {
+    const ctx = this.ctx!;
+    const t = ctx.currentTime + at;
+    const src = ctx.createBufferSource();
+    src.buffer = this.noise;
+    const bp = ctx.createBiquadFilter();
+    bp.type = 'bandpass';
+    bp.frequency.value = freq;
+    bp.Q.value = q;
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(gain, t + 0.02);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    src.connect(bp).connect(g).connect(out);
+    src.start(t, Math.random(), dur + 0.1);
+  }
+
+  /** One "tick" of a noise-maker; called repeatedly while it is running. */
+  playDistraction(kind: 'radio' | 'alarm' | 'musicbox' | 'piano', pos: THREE.Vector3): void {
+    if (!this.ctx) return;
+    const out = this.spatial(pos);
+    if (kind === 'alarm') {
+      // a hammer rattling between two bells
+      for (let i = 0; i < 14; i++) this.tone(out, 'square', i % 2 ? 2350 : 2050, i * 0.06, 0.05, 0.3);
+    } else if (kind === 'radio') {
+      // static with a warbling dance-band tune buried in it
+      this.hiss(out, 2600, 0.6, 0, 1.6, 0.22);
+      const tune = [392, 440, 523, 494, 440, 392, 330, 349];
+      for (let i = 0; i < 4; i++) {
+        const f = tune[Math.floor(Math.random() * tune.length)];
+        this.tone(out, 'sawtooth', f, i * 0.4, 0.36, 0.14, f * (0.98 + Math.random() * 0.04));
+      }
+    } else if (kind === 'musicbox') {
+      const tune = [1319, 1568, 1760, 1568, 1319, 1175, 1047, 1175];
+      for (let i = 0; i < 6; i++) {
+        this.tone(out, 'sine', tune[(Math.floor(this.ctx.currentTime * 2) + i) % tune.length], i * 0.26, 0.5, 0.2);
+      }
+    } else {
+      // a fistful of low keys
+      for (const f of [65, 82, 98, 110, 139, 156, 233]) this.tone(out, 'triangle', f, Math.random() * 0.03, 1.6, 0.4);
+      this.hiss(out, 300, 0.7, 0, 0.3, 0.5);
+    }
+  }
+
+  /** The snap of the crossbow. */
+  playDart(): void {
+    if (!this.ctx) return;
+    this.hiss(this.master, 1800, 1.2, 0, 0.12, 0.5);
+    this.tone(this.master, 'triangle', 240, 0, 0.18, 0.35, 70);
+  }
+
+  /** A body hitting the floorboards. */
+  playThud(pos: THREE.Vector3): void {
+    if (!this.ctx) return;
+    const out = this.spatial(pos);
+    this.tone(out, 'sine', 90, 0.25, 0.4, 0.9, 32);
+    this.hiss(out, 220, 0.8, 0.25, 0.3, 0.6);
+  }
+
+  /** The noise of working on a way out. */
+  playWork(sfx: 'wood' | 'metal' | 'click' | 'engine' | 'pour' | 'winch', pos: THREE.Vector3): void {
+    if (!this.ctx) return;
+    const out = this.spatial(pos);
+    switch (sfx) {
+      case 'wood':
+        for (let i = 0; i < 3; i++) {
+          this.hiss(out, 500 + i * 180, 2, i * 0.28, 0.2, 0.7);
+          this.tone(out, 'sawtooth', 180 - i * 20, i * 0.28, 0.24, 0.3, 90);
+        }
+        break;
+      case 'metal':
+        this.tone(out, 'square', 1900, 0, 0.5, 0.25, 1500);
+        this.tone(out, 'triangle', 760, 0, 0.7, 0.3);
+        this.hiss(out, 3200, 3, 0, 0.12, 0.6);
+        break;
+      case 'click':
+        for (let i = 0; i < 3; i++) this.hiss(out, 2400, 5, i * 0.16, 0.05, 0.6);
+        this.tone(out, 'triangle', 300, 0.48, 0.14, 0.3, 140);
+        break;
+      case 'pour':
+        for (let i = 0; i < 9; i++) this.tone(out, 'sine', 300 + Math.random() * 500, i * 0.2, 0.18, 0.12, 180);
+        this.hiss(out, 900, 0.8, 0, 2, 0.12);
+        break;
+      case 'winch':
+        for (let i = 0; i < 22; i++) {
+          this.hiss(out, 1500, 6, i * 0.22, 0.05, 0.5);
+          this.tone(out, 'sawtooth', 70, i * 0.22, 0.2, 0.16, 55);
+        }
+        break;
+      case 'engine': {
+        // starter whine, a cough, then a rough idle that fades into the mix
+        for (let i = 0; i < 7; i++) this.tone(out, 'sawtooth', 110 + i * 6, i * 0.14, 0.12, 0.3, 90);
+        this.hiss(out, 180, 0.7, 1.0, 0.5, 0.9);
+        const ctx = this.ctx;
+        const t = ctx.currentTime + 1.1;
+        const o = ctx.createOscillator();
+        o.type = 'sawtooth';
+        o.frequency.setValueAtTime(48, t);
+        const lfo = ctx.createOscillator();
+        lfo.frequency.value = 13;
+        const lg = ctx.createGain();
+        lg.gain.value = 9;
+        lfo.connect(lg).connect(o.frequency);
+        const g = ctx.createGain();
+        g.gain.setValueAtTime(0.0001, t);
+        g.gain.exponentialRampToValueAtTime(0.5, t + 0.3);
+        g.gain.setValueAtTime(0.5, t + 20);
+        g.gain.exponentialRampToValueAtTime(0.0001, t + 26);
+        o.connect(g).connect(out);
+        o.start(t);
+        lfo.start(t);
+        o.stop(t + 26.5);
+        lfo.stop(t + 26.5);
+        break;
+      }
+    }
+  }
+
   private spatial(pos: THREE.Vector3): AudioNode {
     const ctx = this.ctx!;
     const panner = ctx.createPanner();

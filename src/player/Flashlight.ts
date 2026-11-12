@@ -96,7 +96,8 @@ export class Flashlight {
   /** `tension` 0..1 — how threatened the player is; drives flicker. `draining` false in menus. */
   update(dt: number, elapsed: number, camera: THREE.Camera, tension = 0, draining = true): void {
     this.group.position.copy(camera.position).add(this.offset.clone().applyQuaternion(camera.quaternion));
-    this.group.quaternion.slerp(camera.quaternion, 1 - Math.exp(-dt * 9));
+    // follows the view almost rigidly: a beam that trails behind makes turning feel sluggish
+    this.group.quaternion.slerp(camera.quaternion, dt <= 0 ? 1 : 1 - Math.exp(-dt * 34));
 
     if (this.on && draining) {
       this.battery = Math.max(0, this.battery - this.drain * dt);

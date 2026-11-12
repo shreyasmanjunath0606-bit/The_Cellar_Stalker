@@ -255,7 +255,8 @@ export class Effects {
 
   /** Soft dust kicked up from the floor. */
   puff(pos: THREE.Vector3, count: number): void {
-    this.at.set(pos.x, Math.max(0.08, pos.y * 0.3), pos.z);
+    const floor = pos.y > 2.8 ? 3 : 0; // upstairs or down
+    this.at.set(pos.x, floor + Math.max(0.08, (pos.y - floor) * 0.3), pos.z);
     this.dust.emit(this.at, count, {
       color: 0x6f6a60, speed: [0.15, 0.7], lift: 0.25, life: [0.9, 2], size: [0.1, 0.22],
       alpha: 0.22, drag: 1.6, spread: 0.3,
@@ -276,10 +277,10 @@ export class Effects {
     });
   }
 
-  /** Grit shaken loose along the top of the rising cellar door. */
-  doorDust(pos: THREE.Vector3): void {
+  /** Grit shaken loose around a door that has not moved in years. */
+  doorDust(pos: THREE.Vector3, width = 1.6): void {
     for (let i = 0; i < 6; i++) {
-      this.at.set(pos.x - 1.1 + i * 0.44, 2.1, pos.z - 0.2);
+      this.at.set(pos.x - width / 2 + (i * width) / 5, pos.y + 1, pos.z - 0.2);
       this.dust.emit(this.at, 5, {
         color: 0x7a746a, speed: [0.05, 0.4], life: [1.2, 2.4], size: [0.06, 0.16], alpha: 0.3,
         gravity: 1.4, drag: 1.2, spread: 0.3,
