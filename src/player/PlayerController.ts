@@ -7,13 +7,18 @@ import type { HideSpot } from '../environment/House';
 import { Stamina } from './Stamina';
 
 const RADIUS = 0.3;
-const HALF_HEIGHT = 0.5; // capsule spans 0..1.6 when its centre is at y = 0.8
+const HALF_HEIGHT = 0.5; // capsule spans 0..1.6 when its centre is 0.8 above the floor
+/** Height of the capsule centre above the player's feet. */
+export const BODY_CENTRE = 0.8;
 const EYE_STAND = 0.7; // eye offset from capsule centre
 const EYE_CROUCH = 0.2;
 const SPEED_WALK = 2.6;
 const SPEED_SPRINT = 4.6;
 const SPEED_CROUCH = 1.3;
-const BASE_SENSITIVITY = 0.0022;
+/** Radians per mouse count at 1× sensitivity. */
+const BASE_SENSITIVITY = 0.0026;
+/** Radians per second when turning with the arrow keys. */
+const KEY_TURN = 2.4;
 const STEP_LENGTH = 1.5;
 /** How far the view may turn while peering out of a hiding spot. */
 const HIDE_YAW = 0.75;
@@ -30,12 +35,13 @@ export class PlayerController {
   noiseRadius = 0;
   /** Mouse sensitivity multiplier from the settings menu. */
   sensitivity = 1;
-  /** True if a stalker watched the player climb into the current hiding spot. */
-  exposed = false;
+  invertY = false;
 
   readonly collider: RAPIER.Collider;
   /** Horizontally moving this frame. */
   isMoving = false;
+  /** Horizontal speed in m/s. */
+  speed = 0;
 
   private readonly body: RAPIER.RigidBody;
   private readonly controller: RAPIER.KinematicCharacterController;
@@ -65,14 +71,21 @@ export class PlayerController {
     this.controller = world.createCharacterController(0.01);
     this.controller.setSlideEnabled(true);
     this.controller.enableAutostep(0.3, 0.1, false);
-    this.controller.enableSnapToGround(0.15);
+    this.controller.enableSnapToGround(0.25);
     this.controller.setMaxSlopeClimbAngle(Math.PI / 4);
+    this.controller.setMinSlopeSlideAngle(Math.PI / 3);
     this.controller.setApplyImpulsesToDynamicBodies(true);
   }
 
+  /** Centre of the body. */
   get position(): THREE.Vector3 {
     const t = this.body.translation();
     return new THREE.Vector3(t.x, t.y, t.z);
+  }
+
+  get feet(): THREE.Vector3 {
+    const t = this.body.translation();
+    return new THREE.Vector3(t.x, t.y - BODY_CENTRE, t.z);
   }
 
   get isSprinting(): boolean {
@@ -81,6 +94,11 @@ export class PlayerController {
 
   get hidden(): boolean {
     return this.hideSpot !== null;
+  }
+
+  /** Id of the hiding place the player is in, or -1. */
+  get hideId(): number {
+    return this.hideSpot?.id ?? -1;
   }
 
   get eyePosition(): THREE.Vector3 {
@@ -95,24 +113,23 @@ export class PlayerController {
     this.vy = 0;
     this.crouching = false;
     this.hideSpot = null;
-    this.exposed = false;
   }
 
-  /** Climb into a wardrobe. `watched` means a stalker saw it happen. */
-  hide(spot: HideSpot, watched: boolean): void {
+  /** Climb into a wardrobe or under a bed. */
+  hide(spot: HideSpot): void {
     this.teleport(spot.pos);
     this.hideSpot = spot;
-    this.exposed = watched;
     this.hideLook = 0;
     this.yaw = spot.yaw;
     this.pitch = 0;
-    this.eye = EYE_STAND;
+    this.eye = spot.eye;
   }
 
   unhide(): void {
     const spot = this.hideSpot;
     if (!spot) return;
     this.teleport(spot.exit);
+    this.eye = EYE_STAND;
   }
 
   /** Smoothly turns the view toward a world point (used by the catch sequence). */
@@ -128,18 +145,29 @@ export class PlayerController {
 
   /** Runs before the physics step: reads input, queues the kinematic move. `frozen` ignores input. */
   update(dt: number, frozen = false): void {
+    // Mouse counts map straight to an angle — no smoothing, no acceleration, and nothing here
+    // depends on the frame rate or on whether a movement key is held.
     const look = this.input.consumeMouse();
     const sens = BASE_SENSITIVITY * this.sensitivity;
+    let dYaw = -look.x * sens;
+    let dPitch = -look.y * sens * (this.invertY ? -1 : 1);
+    // arrow keys also turn the view, for laptops whose touchpad goes dead while keys are held
+    const turn = KEY_TURN * dt;
+    if (this.input.isDown('ArrowLeft')) dYaw += turn;
+    if (this.input.isDown('ArrowRight')) dYaw -= turn;
+    if (this.input.isDown('ArrowUp')) dPitch += turn * 0.6;
+    if (this.input.isDown('ArrowDown')) dPitch -= turn * 0.6;
 
     if (this.hideSpot) {
       if (!frozen) {
-        this.hideLook = THREE.MathUtils.clamp(this.hideLook - look.x * sens, -HIDE_YAW, HIDE_YAW);
+        this.hideLook = THREE.MathUtils.clamp(this.hideLook + dYaw, -HIDE_YAW, HIDE_YAW);
         this.yaw = this.hideSpot.yaw + this.hideLook;
-        this.pitch = THREE.MathUtils.clamp(this.pitch - look.y * sens, -HIDE_PITCH, HIDE_PITCH);
+        this.pitch = THREE.MathUtils.clamp(this.pitch + dPitch, -HIDE_PITCH, HIDE_PITCH);
       }
       this.vel.set(0, 0, 0);
       this.sprinting = false;
       this.isMoving = false;
+      this.speed = 0;
       this.noiseRadius = 0;
       this.stamina.update(dt, false);
       this.advanceBob(dt, 0);
@@ -147,18 +175,18 @@ export class PlayerController {
     }
 
     if (!frozen) {
-      this.yaw -= look.x * sens;
-      this.pitch = THREE.MathUtils.clamp(this.pitch - look.y * sens, -1.45, 1.45);
+      this.yaw += dYaw;
+      this.pitch = THREE.MathUtils.clamp(this.pitch + dPitch, -1.45, 1.45);
       if (this.input.wasPressed('KeyC')) this.crouching = !this.crouching;
     }
 
     let ix = 0;
     let iz = 0;
     if (!frozen) {
-      if (this.input.isDown('KeyW') || this.input.isDown('ArrowUp')) iz -= 1;
-      if (this.input.isDown('KeyS') || this.input.isDown('ArrowDown')) iz += 1;
-      if (this.input.isDown('KeyA') || this.input.isDown('ArrowLeft')) ix -= 1;
-      if (this.input.isDown('KeyD') || this.input.isDown('ArrowRight')) ix += 1;
+      if (this.input.isDown('KeyW')) iz -= 1;
+      if (this.input.isDown('KeyS')) iz += 1;
+      if (this.input.isDown('KeyA')) ix -= 1;
+      if (this.input.isDown('KeyD')) ix += 1;
     }
     const moving = ix !== 0 || iz !== 0;
 
@@ -173,11 +201,11 @@ export class PlayerController {
     const len = Math.hypot(ix, iz) || 1;
     const targetX = ((ix * cos + iz * sin) / len) * speed;
     const targetZ = ((iz * cos - ix * sin) / len) * speed;
-    const accel = 1 - Math.exp(-dt * (moving ? 12 : 9));
+    const accel = 1 - Math.exp(-dt * (moving ? 14 : 10));
     this.vel.x += (targetX - this.vel.x) * accel;
     this.vel.z += (targetZ - this.vel.z) * accel;
 
-    this.vy = this.controller.computedGrounded() ? -1 : this.vy - 9.81 * dt;
+    this.vy = this.controller.computedGrounded() ? -1 : Math.max(-20, this.vy - 9.81 * dt);
 
     this.controller.computeColliderMovement(this.collider, {
       x: this.vel.x * dt,
@@ -189,6 +217,7 @@ export class PlayerController {
     this.body.setNextKinematicTranslation({ x: p.x + m.x, y: p.y + m.y, z: p.z + m.z });
 
     const horizontal = Math.hypot(this.vel.x, this.vel.z);
+    this.speed = horizontal;
     this.isMoving = horizontal > 0.3;
     this.noiseRadius =
       horizontal < 0.3
@@ -203,8 +232,9 @@ export class PlayerController {
 
   /** Runs after the physics step: places the camera at the (post-step) body. */
   syncCamera(dt: number): void {
-    const crouched = this.crouching && !this.hideSpot;
-    this.eye += ((crouched ? EYE_CROUCH : EYE_STAND) - this.eye) * (1 - Math.exp(-dt * 10));
+    if (!this.hideSpot) {
+      this.eye += ((this.crouching ? EYE_CROUCH : EYE_STAND) - this.eye) * (1 - Math.exp(-dt * 10));
+    }
     const t = this.body.translation();
     const bobY = (Math.abs(Math.sin(this.bobPhase)) - 0.5) * 0.07 * this.bobAmp;
     const bobX = Math.cos(this.bobPhase) * 0.035 * this.bobAmp;

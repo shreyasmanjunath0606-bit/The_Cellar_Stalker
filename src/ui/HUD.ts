@@ -1,7 +1,5 @@
 import './hud.css';
 
-const KEY_ICON =
-  '<svg viewBox="0 0 28 12" aria-hidden="true"><circle cx="6" cy="6" r="4" fill="none" stroke="currentColor" stroke-width="2"/><path d="M10 6h16M21 6v4M25 6v3" stroke="currentColor" stroke-width="2" fill="none"/></svg>';
 const EYE_ICON =
   '<svg viewBox="0 0 48 24" aria-hidden="true"><path class="lid" d="M2 12Q24 -8 46 12Q24 32 2 12Z" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="24" cy="12" r="5.5" fill="currentColor"/></svg>';
 
@@ -17,7 +15,14 @@ export class HUD {
   private readonly batteryFill: HTMLElement;
   private readonly staminaFill: HTMLElement;
   private readonly noiseFill: HTMLElement;
-  private readonly keysEl: HTMLElement;
+  private readonly routesEl: HTMLElement;
+  private readonly bagEl: HTMLElement;
+  private readonly teamEl: HTMLElement;
+  private readonly sleepEl: HTMLElement;
+  private lastRoutes = '';
+  private lastBag = '';
+  private lastTeam = '';
+  private lastSleep = '';
   private readonly livesEl: HTMLElement;
   private readonly nightEl: HTMLElement;
   private readonly timeEl: HTMLElement;
@@ -50,7 +55,9 @@ export class HUD {
         <div><label>STAMINA</label><div class="bar stamina"><i></i></div></div>
         <div><label>NOISE</label><div class="bar noise"><i></i></div></div>
       </div>
-      <div class="keys"></div>
+      <div class="side"><div class="routes"></div><div class="bag"></div></div>
+      <div class="team"></div>
+      <div class="sleep"></div>
       <div class="prompt"></div>
       <div class="toast"></div>
       <div class="banner"><small></small><h2></h2><p></p></div>
@@ -64,7 +71,10 @@ export class HUD {
     this.batteryFill = q('.bar.battery i');
     this.staminaFill = q('.bar.stamina i');
     this.noiseFill = q('.bar.noise i');
-    this.keysEl = q('.keys');
+    this.routesEl = q('.routes');
+    this.bagEl = q('.bag');
+    this.teamEl = q('.team');
+    this.sleepEl = q('.sleep');
     this.livesEl = q('.lives');
     this.nightEl = q('.night');
     this.timeEl = q('.time');
@@ -100,12 +110,45 @@ export class HUD {
     this.noiseFill.style.background = level > 0.6 ? '#b03a2e' : level > 0.25 ? '#d8b45a' : '#6f8f6f';
   }
 
-  setKeys(have: number, total: number): void {
-    this.keysEl.innerHTML = Array.from(
-      { length: total },
-      (_, i) => `<span class="${i < have ? 'have' : ''}">${KEY_ICON}</span>`,
-    ).join('');
-    this.keysEl.classList.toggle('all', have >= total);
+  /** The three ways out, each with its checklist of steps. */
+  setRoutes(routes: { name: string; open: boolean; steps: { label: string; done: boolean }[] }[]): void {
+    const html = routes
+      .map(
+        (r) =>
+          `<div class="route${r.open ? ' open' : ''}"><b>${r.name}${r.open ? ' — OPEN' : ''}</b>${r.steps
+            .map((s) => `<span class="${s.done ? 'done' : ''}">${s.label}</span>`)
+            .join('')}</div>`,
+      )
+      .join('');
+    if (html !== this.lastRoutes) this.routesEl.innerHTML = this.lastRoutes = html;
+  }
+
+  /** What the team is carrying. */
+  setBag(items: { name: string; count: number }[]): void {
+    const html = items.length
+      ? `<label>FOUND</label>${items.map((i) => `<span>${i.name}${i.count > 1 ? ` ×${i.count}` : ''}</span>`).join('')}`
+      : '<label>FOUND</label><span class="none">nothing yet</span>';
+    if (html !== this.lastBag) this.bagEl.innerHTML = this.lastBag = html;
+  }
+
+  /** Co-op roster; empty when playing alone. */
+  setTeam(players: { name: string; color: string; status: string; me: boolean }[]): void {
+    const html = players
+      .map(
+        (p) =>
+          `<div class="${p.me ? 'me' : ''}"><i style="background:${p.color}"></i>${p.name}<em>${p.status}</em></div>`,
+      )
+      .join('');
+    if (html !== this.lastTeam) this.teamEl.innerHTML = this.lastTeam = html;
+  }
+
+  /** Seconds she will stay asleep, or 0. */
+  setSleep(seconds: number): void {
+    const text = seconds > 0 ? `SHE IS ASLEEP · ${fmtTime(seconds)}` : '';
+    if (text === this.lastSleep) return;
+    this.sleepEl.textContent = this.lastSleep = text;
+    this.sleepEl.classList.toggle('on', seconds > 0);
+    this.sleepEl.classList.toggle('ending', seconds > 0 && seconds <= 15);
   }
 
   setLives(left: number, total: number): void {
@@ -143,7 +186,7 @@ export class HUD {
 
   /** Short message under the centre of the screen. */
   toast(text: string, warn = false): void {
-    this.toastEl.textContent = text;
+    this.toastEl.textContent = text.toUpperCase();
     this.toastEl.classList.toggle('warn', warn);
     this.toastEl.classList.add('on');
     this.toastTimer = 3.2;
